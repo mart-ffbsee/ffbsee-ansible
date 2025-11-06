@@ -31,7 +31,6 @@ ipv6_uplink={{ ipv6_uplink_announcen }}
 ##############
 
 # abort script on first error
-set -e
 set -u
 
 export PATH=$PATH:/usr/local/sbin:/usr/local/bin:/usr/bin:/bin
@@ -78,9 +77,8 @@ is_running() {
 
 if [ $run_mesh = true ]; then
 
-    #make sure batman-adv is loaded
-    modprobe batman_adv
-
+    #batman-adv is already loaded and setup for BATMAN_V by systemd service
+    
     #enable forwarding
     echo 1 > /proc/sys/net/ipv6/conf/default/forwarding
     echo 1 > /proc/sys/net/ipv6/conf/all/forwarding
@@ -88,8 +86,6 @@ if [ $run_mesh = true ]; then
     echo 1 > /proc/sys/net/ipv4/conf/all/forwarding
     echo 1 > /proc/sys/net/ipv4/ip_forward
     
-    # force BATMAN V routing algo _before_ batctl sets up any interface
-    batctl ra BATMAN_V
 
     # Check if wireguard is running
     if ! is_running "wg-crypt-wg-bac"; then
@@ -149,11 +145,10 @@ if [ $run_mesh = true ]; then
         echo 600 > /proc/sys/net/ipv6/neigh/bat0/gc_stale_time
         echo 300000 > /proc/sys/net/ipv6/neigh/bat0/base_reachable_time_ms
         echo "(I) Configure batman-adv."
-        echo 10000 >  /sys/class/net/bat0/mesh/orig_interval
-        echo 1 >  /sys/class/net/bat0/mesh/distributed_arp_table
-        echo 1 >  /sys/class/net/bat0/mesh/multicast_mode
-        echo 1 >  /sys/class/net/bat0/mesh/bridge_loop_avoidance
-        echo 1 >  /sys/class/net/bat0/mesh/aggregated_ogms
+        /usr/local/sbin/batctl it 15000
+        /usr/local/sbin/batctl dat 1
+        /usr/local/sbin/batctl multicast_mode 1
+        /usr/local/sbin/batctl bridge_loop_avoidance
         #set size of neighbor table
         gc_thresh=1024 #default is 256
         sysctl -w net.ipv4.neigh.default.gc_thresh1=$(($gc_thresh * 1))
@@ -173,11 +168,11 @@ if [ $run_mesh = true ]; then
         # remove remains
         rm -rf /var/run/alfred
         # set minimum access rights for reading information out of kernel debug interface
-        chown root.alfred /sys/kernel/debug
+        chown root:alfred /sys/kernel/debug
         chmod 750 /sys/kernel/debug
         # create separate run dir with appropriate access rights because it gets deleted with every reboot
         mkdir --parents --mode=775 /var/run/alfred/
-        chown alfred.alfred /var/run/alfred/
+        chown alfred:alfred /var/run/alfred/
         echo "(I) Start alfred."
         # set umask of socket from 0117 to 0111 so that data can be pushed to alfred.sock below
                 start-stop-daemon --start --quiet --pidfile /var/run/alfred/alfred.pid \
@@ -293,8 +288,30 @@ if ! is_running "bird6"; then
     echo "(I) Start bird6."
     systemctl start bird6.service
 fi  
+
+expectedtpoverride="10000.0 MBit"
+throughputoverride="$(batctl vxbackbone throughput_override)"
+if ! [[ "$throughputoverride" == "$expectedtpoverride" ]]; then
+   printf "$throughputoverride\n"
+   echo fixing it to $expectedtpoverride                                                                                              
+   $(batctl vxbackbone throughput_override "10000Mbit")
+else
+   echo $throughputoverride                                                                                                           
+   echo -e "throughputoverride good\n"                                                                                                                   
+fi
+
+# Alle IPv6-Adressen des Interfaces bat0 abrufen
+ip_addresses=$(ip -6 addr show dev bat0 | grep 'inet6' | awk '{print $2}')
+# Durch die Adressen iterieren und die unbekannte IP finden
+for ip in $ip_addresses; do
+    if [[ "$ip" != "$mesh_ipv6_addr/64" && "$ip" != fe80:* ]]; then
+        # Unbekannte IP löschen
+        echo "Lösche unbekannte IP: $ip"
+        ip -6 addr del "$ip" dev bat0
+    fi
+done
+
 echo "update done"
 
-
-
+exit 0
 
