@@ -1,6 +1,6 @@
 ---
-freifunk_dhcp_server: false 
-freifunk_dhcp_relay: true
+freifunk_dhcp_server: true
+freifunk_dhcp_relay: false 
 
 # meta information about this gateway:
 hostname: 'gw01.ffbsee.net'
