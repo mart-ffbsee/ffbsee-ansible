@@ -1,14 +1,7 @@
 ---
 
-- name: Install vxlan backbone-service 
-  apt:
-    name: 'vxlan-backbone'
-    state: 'latest'
-    update_cache: yes
-    cache_valid_time: 86400
-
 - name: Copy vxlan-backbone systemd service file
-  file:
+  copy:
     src: 'files/vxlanbackbone/vxlanbackbone.service'
     dest: '/etc/systemd/system/vxlanbackbone.service'
     owner: 'root'
@@ -16,7 +9,7 @@
     mode: '0644'
 
 - name: Copy vxlan-backbone template file
-  file:
+  template:
     src: 'templates/vxlan/vxlanbackbone.sh.j2'
     dest: '/opt/freifunk/vxlanbackbone.sh'
     owner: 'root'
@@ -24,7 +17,7 @@
     mode: '0744'
 
 - name: Copy vxlan-functions file
-  file:
+  copy:
     src: 'files/vxlanbackbone/vxlanfunctions.sh'
     dest: '/opt/freifunk/vxlanfunctions.sh'
     owner: 'root'

@@ -29,6 +29,7 @@ is_vx_link_up() {
     fi
 }
 
+
 #Function that returns true if any of the other functions return false
 any_vx_problem() {
    local vxlanstatus=0
@@ -46,4 +47,33 @@ any_vx_problem() {
    else
       return 1
    fi
+}
+
+sync_vxlan_fdb() {
+    local current_fdb_endpoints expected_endpoints missing_endpoints obsolete_endpoints dst
+
+    echo "checking FDB-entries..."
+
+    # check current fdb entries
+    current_fdb_endpoints=$(bridge fdb show dev "$vxlanifname" |
+        awk '/00:00:00:00:00:00/ && /dst/ {for (i=1;i<=NF;i++) if ($i=="dst") print $(i+1)}' | sort -u)
+
+    # expected enpoints (without own IP)
+    expected_endpoints=$(printf "%s\n" "${vxlanEndpoints[@]}" | grep -v -F "$WgIp" | sort -u)
+
+    # compare missing and obsolete endpoints
+    missing_endpoints=$(comm -13 <(echo "$current_fdb_endpoints") <(echo "$expected_endpoints"))
+    obsolete_endpoints=$(comm -23 <(echo "$current_fdb_endpoints") <(echo "$expected_endpoints"))
+
+    # add missing endpoints
+    for dst in $missing_endpoints; do
+        echo "FDB missing for $dst , adding it"
+        /sbin/bridge fdb append to 00:00:00:00:00:00 dst "$dst" dev "$vxlanifname"
+    done
+
+    # delete old endpoint fdb entries
+    for dst in $obsolete_endpoints; do
+        echo "FDB-entry for $dst is obsolete, deleting it"
+        /sbin/bridge fdb del to 00:00:00:00:00:00 dst "$dst" dev "$vxlanifname"
+    done
 }

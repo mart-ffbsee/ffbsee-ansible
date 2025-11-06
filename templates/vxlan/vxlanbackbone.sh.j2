@@ -6,6 +6,8 @@ VxlanMac={{ vxlanmac }}
 vxlanEndpoints=({{ vxlanendpoints }})
 vxlanifname={{ vxlanbackbonename }}
 
+batctlcmd=$(which batctl)
+
 # Sourcing the functions to be used below and in other scripts
 source /opt/freifunk/vxlanfunctions.sh
 
@@ -22,10 +24,10 @@ if ! is_vx_running "$vxlanifname"; then
    /sbin/ip -6 link set mtu 1240 dev $vxlanifname
 
    # Add this vxlan if to batman-adv interface:
-   /usr/local/sbin/batctl meshif bat0 if add $vxlanifname
+   $batctlcmd meshif bat0 if add $vxlanifname
 
    # Setting throughput_override with very high value because it is the backbone:
-   /usr/local/sbin/batctl hardif $vxlanifname throughput_override 10000mbit
+   $batctlcmd hardif $vxlanifname throughput_override 10000mbit
 
    for str in ${vxlanEndpoints[@]}; do
 
@@ -49,8 +51,24 @@ else
    fi
    if ! is_vx_added_to_bat "$vxlanifname"; then
    echo "not added to bat0 yet, adding it"
-   /usr/local/sbin/batctl if add $vxlanifname
+   $batctlcmd if add $vxlanifname
    else
       echo "$vxlanifname already added to bat0"
+   fi
+   sync_vxlan_fdb
+   if ! bridge fdb | grep '00:00:00:00:00:00'; then
+      for str in ${vxlanEndpoints[@]}; do
+
+       if [[ "$WgIp" == $str  ]]
+       then
+         echo "Not adding own address"
+       else
+
+         # The following adds the remote IP(s) as in other vxlanbackbone peers
+         /sbin/bridge fdb append to 00:00:00:00:00:00 dst $str dev $vxlanifname
+       fi
+      done
+   else
+      echo "bridge scheint Okay zu sein"
    fi
 fi
