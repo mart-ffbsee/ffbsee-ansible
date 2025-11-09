@@ -5,36 +5,6 @@
 #  tasks:
 #    - include_vars: group_vars/all_vault.yml
 
-- name: check if ansible is not to old
-  hosts: localhost
-  tags:
-   - default
-  roles:
-    - ansible_version
-  gather_facts: no
-
-- name: Update packages and users on all nodes
-  hosts: freifunk
-  tags: 
-  - base
-  - users
-  - home
-  - base_packages
-  - ssh_authorized_keys
-  - home_environment
-  - new-user
-  - base
-  - ssh
-  - sshd
-  - ssh_authorized_keys
-  - auth
-  roles:
-    - base_packages
-    - manage_users
-    - ssh_authorized_keys
-    - sshd
-     - home_environment
-
 - name: python3 as default
   hosts: all
   tags:
@@ -49,10 +19,8 @@
 - name: Update packages and users on all nodes
   hosts: freifunk
   tags: 
-  - home_environment
   - motd
   roles:
-    - home_environment
     - motd
     - install-bat
   tasks:
@@ -62,6 +30,7 @@
         selection: hold
 
 # Note: We don't do this for hosts in external datacenters
+# since we may have other hosts in the future, let's keep this for now, but commented out
 #- name: Configure basic network setup for gw
 #  hosts:
 #     - gw01.ffbsee.net
