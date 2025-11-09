@@ -5,6 +5,18 @@
 #  tasks:
 #    - include_vars: group_vars/all_vault.yml
 
+- hosts: all
+  become: yes
+  tags:
+    - basic-packages
+    - sshd
+    - users
+  roles:
+    - basic-packages
+    - sshd
+    - users
+
+
 - name: python3 as default
   hosts: all
   tags:
