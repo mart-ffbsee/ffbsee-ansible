@@ -1,0 +1,18 @@
+---
+wg_iface: "wg-nodes"
+wg_listen_port: 51828
+wg_prefix: "fd42:dead:beef:23::/64"
+
+wg_peer_dir: "/etc/wireguard/peers.d"
+
+key_acceptor_state_dir: "/var/lib/ff-key-acceptor"
+key_acceptor_bind_host: "127.0.0.1"
+key_acceptor_bind_port: 8081
+
+gateway_api_domain: "wgapi.{{ hostname }}"
+gateway_endpoint: "{{ hostname }}:{{ wg_listen_port }}"
+
+registration_token: "0ebytWm474jw1AaXdBmIoW6VBdqATC6A"
+
+tls_cert_path: "/etc/letsencrypt/live/{{ gateway_api_domain }}/fullchain.pem"
+tls_key_path: "/etc/letsencrypt/live/{{ gateway_api_domain }}/privkey.pem"

@@ -1,0 +1,19 @@
+[Unit]
+Description=Freifunk WireGuard Key Acceptor
+After=network.target wg-quick@{{ wg_iface }}.service
+Wants=wg-quick@{{ wg_iface }}.service
+
+[Service]
+Type=simple
+Environment=FF_REGISTER_TOKEN={{ registration_token }}
+ExecStart=/usr/local/bin/ff-key-acceptor.py
+Restart=always
+RestartSec=5
+User=root
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

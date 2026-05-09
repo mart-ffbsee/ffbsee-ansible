@@ -1,0 +1,22 @@
+limit_req_zone $binary_remote_addr zone=wgregister:10m rate=5r/s;
+
+server {
+    listen 443 ssl http2;
+    server_name {{ gateway_api_domain }};
+
+    ssl_certificate {{ tls_cert_path }};
+    ssl_certificate_key {{ tls_key_path }};
+
+    location /api/register {
+        limit_req zone=wgregister burst=20 nodelay;
+
+        proxy_pass http://{{ key_acceptor_bind_host }}:{{ key_acceptor_bind_port }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /health {
+        proxy_pass http://{{ key_acceptor_bind_host }}:{{ key_acceptor_bind_port }};
+    }
+}

@@ -1,0 +1,100 @@
+---
+- name: Install packages
+  apt:
+    name:
+      - wireguard-tools
+      - python3
+      - python3-flask
+      - nginx
+    state: present
+    update_cache: true
+
+- name: Create directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - /etc/wireguard
+    - "{{ wg_peer_dir }}"
+    - "{{ key_acceptor_state_dir }}"
+
+- name: Generate gateway private key if missing
+  shell: |
+    umask 077
+    wg genkey > /etc/wireguard/{{ wg_iface }}.key
+  args:
+    creates: "/etc/wireguard/{{ wg_iface }}.key"
+
+- name: Read gateway private key
+  slurp:
+    src: "/etc/wireguard/{{ wg_iface }}.key"
+  register: wg_private_key_raw
+  no_log: true
+
+- name: Install peer loader
+  copy:
+    src: wg-load-peers
+    dest: /usr/local/sbin/wg-load-peers
+    mode: "0755"
+
+- name: Install WireGuard config
+  template:
+    src: wg-nodes.conf.j2
+    dest: "/etc/wireguard/{{ wg_iface }}.conf"
+    mode: "0600"
+  no_log: true
+  notify: restart wireguard
+
+- name: Install key acceptor script
+  template:
+    src: ff-key-acceptor.py.j2
+    dest: /usr/local/bin/ff-key-acceptor.py
+    mode: "0755"
+  notify: restart key acceptor
+
+- name: Install key acceptor systemd service
+  template:
+    src: ff-key-acceptor.service.j2
+    dest: /etc/systemd/system/ff-key-acceptor.service
+    mode: "0644"
+  notify: restart key acceptor
+
+- name: Install nginx site
+  template:
+    src: nginx-ff-key-acceptor.conf.j2
+    dest: /etc/nginx/sites-available/ff-key-acceptor
+    mode: "0644"
+  notify: reload nginx
+
+- name: Enable nginx site
+  file:
+    src: /etc/nginx/sites-available/ff-key-acceptor
+    dest: /etc/nginx/sites-enabled/ff-key-acceptor
+    state: link
+  notify: reload nginx
+
+- name: Disable default nginx site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: reload nginx
+
+- name: Enable and start WireGuard
+  systemd:
+    name: "wg-quick@{{ wg_iface }}"
+    enabled: true
+    state: started
+
+- name: Enable and start key acceptor
+  systemd:
+    name: ff-key-acceptor
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable and start nginx
+  systemd:
+    name: nginx
+    enabled: true
+    state: started

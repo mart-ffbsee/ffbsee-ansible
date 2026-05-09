@@ -80,6 +80,15 @@
     - wireguard
     - vxlanbackbone
 
+- name: Configure wireguard-nodes on specific Gateways
+  hosts: 
+    - gw01.ffbsee.net
+  become: true
+  roles:
+    - wireguard-nodes
+  tags:
+    - wireguard-nodes
+
 - name: Configure network routing for gw
   hosts: freifunk
   tags: 
@@ -173,3 +182,5 @@
     - robin
   roles:
     - ffbsee-robin-exporter
+
+

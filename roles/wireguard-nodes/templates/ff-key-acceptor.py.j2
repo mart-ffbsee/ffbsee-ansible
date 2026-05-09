@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+import base64
+import hashlib
+import ipaddress
+import json
+import os
+import re
+import subprocess
+import tempfile
+import time
+from pathlib import Path
+
+from flask import Flask, request, jsonify
+
+WG_IFACE = "{{ wg_iface }}"
+PEER_DIR = Path("{{ wg_peer_dir }}")
+STATE_DIR = Path("{{ key_acceptor_state_dir }}")
+WG_PREFIX = ipaddress.IPv6Network("{{ wg_prefix }}")
+GW_ENDPOINT = "{{ gateway_endpoint }}"
+
+REGISTRATION_TOKEN = os.environ.get("FF_REGISTER_TOKEN", "")
+
+RATE_LIMIT_WINDOW_SECONDS = 60
+RATE_LIMIT_MAX_REQUESTS = 30
+
+LISTEN_HOST = "{{ key_acceptor_bind_host }}"
+LISTEN_PORT = {{ key_acceptor_bind_port }}
+
+NODEID_RE = re.compile(r"^[a-fA-F0-9]{12,64}$")
+
+app = Flask(__name__)
+rate_limit = {}
+
+
+def validate_wireguard_pubkey(pubkey):
+    if not isinstance(pubkey, str):
+        return False
+    if len(pubkey) != 44:
+        return False
+    try:
+        decoded = base64.b64decode(pubkey, validate=True)
+    except Exception:
+        return False
+    return len(decoded) == 32
+
+
+def validate_nodeid(nodeid):
+    return isinstance(nodeid, str) and bool(NODEID_RE.match(nodeid))
+
+
+def derive_node_ip(nodeid):
+    digest = hashlib.blake2b(nodeid.lower().encode(), digest_size=8).digest()
+    suffix = int.from_bytes(digest, "big")
+    base = int(WG_PREFIX.network_address)
+    return ipaddress.IPv6Address(base + suffix)
+
+
+def get_gateway_pubkey():
+    return subprocess.check_output(
+        ["wg", "show", WG_IFACE, "public-key"],
+        text=True,
+    ).strip()
+
+
+def atomic_write(path, content, mode=0o600):
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent),
+        prefix=f".{path.name}.",
+        text=True,
+    )
+
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.chmod(tmp_name, mode)
+        os.replace(tmp_name, path)
+    finally:
+        try:
+            os.unlink(tmp_name)
+        except FileNotFoundError:
+            pass
+
+
+def apply_peer_live(pubkey, node_ip):
+    subprocess.run(
+        [
+            "wg",
+            "set",
+            WG_IFACE,
+            "peer",
+            pubkey,
+            "allowed-ips",
+            f"{node_ip}/128",
+        ],
+        check=True,
+    )
+
+
+def persist_peer(nodeid, pubkey, node_ip):
+    peer_file = PEER_DIR / f"{nodeid.lower()}.conf"
+
+    content = (
+        "[Peer]\n"
+        f"# NodeID = {nodeid.lower()}\n"
+        f"# RegisteredAt = {int(time.time())}\n"
+        f"PublicKey = {pubkey}\n"
+        f"AllowedIPs = {node_ip}/128\n"
+    )
+
+    atomic_write(peer_file, content)
+
+
+def persist_metadata(nodeid, pubkey, node_ip, remote_addr):
+    metadata_file = STATE_DIR / f"{nodeid.lower()}.json"
+
+    content = json.dumps(
+        {
+            "nodeid": nodeid.lower(),
+            "pubkey": pubkey,
+            "node_ip": str(node_ip),
+            "remote_addr": remote_addr,
+            "registered_at": int(time.time()),
+        },
+        indent=2,
+        sort_keys=True,
+    ) + "\n"
+
+    atomic_write(metadata_file, content)
+
+
+def check_rate_limit(remote_addr):
+    now = time.time()
+
+    bucket = rate_limit.setdefault(remote_addr, [])
+    bucket[:] = [ts for ts in bucket if now - ts < RATE_LIMIT_WINDOW_SECONDS]
+
+    if len(bucket) >= RATE_LIMIT_MAX_REQUESTS:
+        return False
+
+    bucket.append(now)
+    return True
+
+
+@app.get("/health")
+def health():
+    return jsonify({"ok": True})
+
+
+@app.post("/api/register")
+def register():
+    remote_addr = request.headers.get(
+        "X-Forwarded-For",
+        request.remote_addr or "unknown",
+    )
+    remote_addr = remote_addr.split(",")[0].strip()
+
+    if not check_rate_limit(remote_addr):
+        return jsonify({"error": "rate limited"}), 429
+
+    try:
+        data = request.get_json(force=True)
+    except Exception:
+        return jsonify({"error": "invalid json"}), 400
+
+    pubkey = data.get("pubkey")
+    nodeid = data.get("nodeid")
+    token = data.get("token", "")
+
+    if REGISTRATION_TOKEN and token != REGISTRATION_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
+
+    if not validate_nodeid(nodeid):
+        return jsonify({"error": "invalid nodeid"}), 400
+
+    if not validate_wireguard_pubkey(pubkey):
+        return jsonify({"error": "invalid wireguard public key"}), 400
+
+    nodeid = nodeid.lower()
+    node_ip = derive_node_ip(nodeid)
+
+    try:
+        persist_peer(nodeid, pubkey, node_ip)
+        persist_metadata(nodeid, pubkey, node_ip, remote_addr)
+        apply_peer_live(pubkey, node_ip)
+        gw_pubkey = get_gateway_pubkey()
+    except subprocess.CalledProcessError as e:
+        return jsonify(
+            {
+                "error": "wireguard command failed",
+                "detail": str(e),
+            }
+        ), 500
+    except Exception as e:
+        return jsonify(
+            {
+                "error": "internal error",
+                "detail": str(e),
+            }
+        ), 500
+
+    return jsonify(
+        {
+            "ok": True,
+            "nodeid": nodeid,
+            "node_ip": str(node_ip),
+            "allowed_ips": f"{node_ip}/128",
+            "gw_pubkey": gw_pubkey,
+            "gw_endpoint": GW_ENDPOINT,
+        }
+    )
+
+
+if __name__ == "__main__":
+    app.run(host=LISTEN_HOST, port=LISTEN_PORT)

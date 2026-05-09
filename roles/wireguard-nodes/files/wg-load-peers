@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+IFACE="${1:-wg-nodes}"
+PEER_DIR="${2:-/etc/wireguard/peers.d}"
+
+for file in "$PEER_DIR"/*.conf; do
+    [ -e "$file" ] || continue
+
+    pubkey="$(awk -F= '/^[[:space:]]*PublicKey[[:space:]]*=/{gsub(/[ \t]/,"",$2); print $2}' "$file")"
+    allowed="$(awk -F= '/^[[:space:]]*AllowedIPs[[:space:]]*=/{gsub(/[ \t]/,"",$2); print $2}' "$file")"
+
+    [ -n "$pubkey" ] || continue
+    [ -n "$allowed" ] || continue
+
+    wg set "$IFACE" peer "$pubkey" allowed-ips "$allowed"
+done
