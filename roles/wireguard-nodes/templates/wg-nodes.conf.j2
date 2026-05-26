@@ -1,6 +1,6 @@
 [Interface]
 PrivateKey = {{ wg_private_key_raw.content | b64decode | trim }}
 ListenPort = {{ wg_listen_port }}
-Address = {{ wireguardnodesipadress }}
+Address = {{ wireguardnodesipadress }}/64
 
 PostUp = /usr/local/sbin/wg-load-peers %i {{ wg_peer_dir }}
