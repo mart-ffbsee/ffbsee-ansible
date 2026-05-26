@@ -4,11 +4,20 @@ set -eu
 IFACE="${1:-wg-nodes}"
 PEER_DIR="${2:-/etc/wireguard/peers.d}"
 
+get_value() {
+    key="$1"
+    file="$2"
+
+    sed -n "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*//p" "$file" \
+        | sed 's/[[:space:]]*$//' \
+        | head -n 1
+}
+
 for file in "$PEER_DIR"/*.conf; do
     [ -e "$file" ] || continue
 
-    pubkey="$(awk -F= '/^[[:space:]]*PublicKey[[:space:]]*=/{gsub(/[ \t]/,"",$2); print $2}' "$file")"
-    allowed="$(awk -F= '/^[[:space:]]*AllowedIPs[[:space:]]*=/{gsub(/[ \t]/,"",$2); print $2}' "$file")"
+    pubkey="$(get_value PublicKey "$file")"
+    allowed="$(get_value AllowedIPs "$file")"
 
     [ -n "$pubkey" ] || continue
     [ -n "$allowed" ] || continue
