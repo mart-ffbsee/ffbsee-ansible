@@ -205,6 +205,6 @@ vxlan_ensure_added_to_bat() {
     fi
 
     if [ -n "$throughput_override" ]; then
-        "$batctlcmd" meshif "$meshif" hardif "$iface" throughput_override "$throughput_override"
+        "$batctlcmd" hardif "$iface" throughput_override "$throughput_override"
     fi
 }
