@@ -1,79 +1,210 @@
 #!/bin/bash
-# Funtions to be used in vxlan startup and check scripts
+# Shared VXLAN functions for backbone but also normal nodes setup- scripts
 
-# Function to check if vxlan interface is already running
-is_vx_running() {
-    if [ ! -f "/sys/class/net/$1/operstate" ];then
-       echo "$1 not up yet"
-       return 1
-    else
-       cat /sys/class/net/$1/operstate | grep -q -v UNKNOWN > /dev/null || return $?
+
+# Interface checks
+
+vx_exists() {
+    local iface="$1"
+    [ -d "/sys/class/net/$iface" ]
+}
+
+vx_link_up() {
+    local iface="$1"
+
+    if ! vx_exists "$iface"; then
+        return 1
     fi
+
+    ip link show dev "$iface" | grep -q "UP"
 }
 
-# Function to check if vxlan interface is already added to batman-adv interface
-is_vx_added_to_bat() {
-    if ! /usr/local/sbin/batctl if | grep -q "$1: active";then
-       return 1
-    else
-       return 0
+vx_added_to_bat() {
+    local iface="$1"
+    local meshif="${2:-bat0}"
+    local batctlcmd="${BATCTL_CMD:-/usr/local/sbin/batctl}"
+
+    "$batctlcmd" meshif "$meshif" if | grep -q "^$iface: active"
+}
+
+vx_any_problem() {
+    local iface="$1"
+    local meshif="${2:-bat0}"
+
+    if ! vx_exists "$iface"; then
+        return 0
     fi
-}
 
-# Function to check if vxlan interface link is up
-is_vx_link_up() {
-    if ip a show dev $1 | grep -q "state DOWN";then
-       return 1
-    else
-       return 0
+    if ! vx_link_up "$iface"; then
+        return 0
     fi
+
+    if ! vx_added_to_bat "$iface" "$meshif"; then
+        return 0
+    fi
+
+    return 1
 }
 
 
-#Function that returns true if any of the other functions return false
-any_vx_problem() {
-   local vxlanstatus=0
-   if ! is_vx_running "$1"; then
-      vxlanstatus=1
-   fi
-   if ! is_vx_added_to_bat "$1"; then
-      vxlanstatus=1
-   fi
-   if ! is_vx_link_up "$1"; then
-      vxlanstatus=1
-   fi
-   if (($vxlanstatus == 1)); then
-      return 0
-   else
-      return 1
-   fi
+# VXLAN FDB helpers
+
+vxlan_current_fdb_endpoints() {
+    local iface="$1"
+
+    bridge fdb show dev "$iface" |
+        awk '/00:00:00:00:00:00/ && /dst/ {
+            for (i=1; i<=NF; i++) {
+                if ($i == "dst") print $(i+1)
+            }
+        }' |
+        sort -u
 }
 
-sync_vxlan_fdb() {
-    local current_fdb_endpoints expected_endpoints missing_endpoints obsolete_endpoints dst
+vxlan_sync_fdb() {
+    local iface="$1"
+    local own_ip="$2"
+    shift 2
 
-    echo "checking FDB-entries..."
+    local endpoints current expected missing obsolete dst
 
-    # check current fdb entries
-    current_fdb_endpoints=$(bridge fdb show dev "$vxlanifname" |
-        awk '/00:00:00:00:00:00/ && /dst/ {for (i=1;i<=NF;i++) if ($i=="dst") print $(i+1)}' | sort -u)
+    echo "checking FDB entries for $iface..."
 
-    # expected enpoints (without own IP)
-    expected_endpoints=$(printf "%s\n" "${vxlanEndpoints[@]}" | grep -v -F "$WgIp" | sort -u)
+    current="$(vxlan_current_fdb_endpoints "$iface")"
 
-    # compare missing and obsolete endpoints
-    missing_endpoints=$(comm -13 <(echo "$current_fdb_endpoints") <(echo "$expected_endpoints"))
-    obsolete_endpoints=$(comm -23 <(echo "$current_fdb_endpoints") <(echo "$expected_endpoints"))
+    expected="$(
+        printf "%s\n" "$@" |
+            sed '/^[[:space:]]*$/d' |
+            grep -v -F "$own_ip" |
+            sort -u
+    )"
 
-    # add missing endpoints
-    for dst in $missing_endpoints; do
-        echo "FDB missing for $dst , adding it"
-        /sbin/bridge fdb append to 00:00:00:00:00:00 dst "$dst" dev "$vxlanifname"
+    missing="$(comm -13 <(printf "%s\n" "$current") <(printf "%s\n" "$expected"))"
+    obsolete="$(comm -23 <(printf "%s\n" "$current") <(printf "%s\n" "$expected"))"
+
+    for dst in $missing; do
+        echo "FDB missing for $dst, adding it"
+        bridge fdb append to 00:00:00:00:00:00 dst "$dst" dev "$iface"
     done
 
-    # delete old endpoint fdb entries
-    for dst in $obsolete_endpoints; do
-        echo "FDB-entry for $dst is obsolete, deleting it"
-        /sbin/bridge fdb del to 00:00:00:00:00:00 dst "$dst" dev "$vxlanifname"
+    for dst in $obsolete; do
+        echo "FDB entry for $dst is obsolete, deleting it"
+        bridge fdb del to 00:00:00:00:00:00 dst "$dst" dev "$iface" || true
     done
+}
+
+vxlan_add_fdb_endpoint() {
+    local iface="$1"
+    local dst="$2"
+
+    if bridge fdb show dev "$iface" | grep -q "00:00:00:00:00:00.*dst $dst"; then
+        echo "FDB entry for $dst already exists on $iface"
+    else
+        echo "Adding FDB endpoint $dst to $iface"
+        bridge fdb append to 00:00:00:00:00:00 dst "$dst" dev "$iface"
+    fi
+}
+
+vxlan_remove_fdb_endpoint() {
+    local iface="$1"
+    local dst="$2"
+
+    echo "Removing FDB endpoint $dst from $iface"
+    bridge fdb del to 00:00:00:00:00:00 dst "$dst" dev "$iface" || true
+}
+
+
+# Node peer state helpers (for normal nodes)
+
+node_state_endpoints_from_json() {
+    local state_dir="$1"
+
+    [ -d "$state_dir" ] || return 0
+
+    for file in "$state_dir"/*.json; do
+        [ -e "$file" ] || continue
+
+        python3 - "$file" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    node_ip = data.get("node_ip")
+    if node_ip:
+        print(node_ip)
+
+except Exception:
+    pass
+PY
+    done | sort -u
+}
+
+vxlan_sync_fdb_from_node_state() {
+    local iface="$1"
+    local own_ip="$2"
+    local state_dir="$3"
+
+    local endpoints
+
+    mapfile -t endpoints < <(node_state_endpoints_from_json "$state_dir")
+
+    vxlan_sync_fdb "$iface" "$own_ip" "${endpoints[@]}"
+}
+
+
+# Interface setup helper
+
+vxlan_create_if_missing() {
+    local iface="$1"
+    local vni="$2"
+    local dstport="$3"
+    local underlay_if="$4"
+    local mac="$5"
+    local mtu="$6"
+
+    if vx_exists "$iface"; then
+        echo "$iface already exists"
+        return 0
+    fi
+
+    echo "Creating VXLAN interface $iface"
+
+    ip -6 link add "$iface" type vxlan id "$vni" dstport "$dstport" dev "$underlay_if"
+    ip -6 link set dev "$iface" address "$mac"
+    ip -6 link set up dev "$iface"
+
+    ip -6 addr flush dev "$iface"
+    ip -6 link set mtu "$mtu" dev "$iface"
+}
+
+vxlan_ensure_up() {
+    local iface="$1"
+
+    if ! vx_link_up "$iface"; then
+        echo "$iface is down, setting it up"
+        ip link set up dev "$iface"
+    fi
+}
+
+vxlan_ensure_added_to_bat() {
+    local iface="$1"
+    local meshif="${2:-bat0}"
+    local throughput_override="${3:-}"
+    local batctlcmd="${BATCTL_CMD:-/usr/local/sbin/batctl}"
+
+    if ! vx_added_to_bat "$iface" "$meshif"; then
+        echo "$iface not added to $meshif yet, adding it"
+        "$batctlcmd" meshif "$meshif" if add "$iface"
+    else
+        echo "$iface already added to $meshif"
+    fi
+
+    if [ -n "$throughput_override" ]; then
+        "$batctlcmd" meshif "$meshif" hardif "$iface" throughput_override "$throughput_override"
+    fi
 }
