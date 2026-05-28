@@ -95,7 +95,7 @@ if [ $run_mesh = true ]; then
     
     # Check for vxbackbone and start if needed
 
-    if any_vx_problem "vxbackbone"; then
+    if vx_any_problem "vxbackbone"; then
         echo "vxlan backbone problem detected. Fixing it."
         systemctl restart vxlanbackbone
     fi
