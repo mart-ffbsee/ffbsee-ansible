@@ -89,6 +89,16 @@
   tags:
     - wireguard-nodes
 
+
+- name: Configure VXLAN for node peers on specific gateway
+  hosts:
+    - gw01.ffbsee.net
+  become: true
+  roles:
+    - vxlan-nodes
+  tags:
+    - vxlan-nodes
+
 - name: Configure network routing for gw
   hosts: freifunk
   tags: 

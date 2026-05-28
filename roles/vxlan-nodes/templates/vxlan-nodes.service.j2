@@ -1,0 +1,12 @@
+[Unit]
+Description= Node Peer VXLAN
+After=network.target wg-quick@{{ node_vxlan_underlay_if }}.service ff-key-acceptor.service
+Wants=wg-quick@{{ node_vxlan_underlay_if }}.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart={{ vxlan_nodes_script_path }}
+
+[Install]
+WantedBy=multi-user.target

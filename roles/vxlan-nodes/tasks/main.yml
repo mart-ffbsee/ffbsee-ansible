@@ -1,0 +1,47 @@
+---
+- name: Check if shared VXLAN functions exist
+  stat:
+    path: "{{ vxlan_functions_path }}"
+  register: vxlan_functions_file
+
+- name: Fail if shared VXLAN functions are missing
+  fail:
+    msg: >
+      {{ vxlan_functions_path }} fehlt.
+      Bitte zuerst die bestehende VXLAN/Backbone-Rolle ausführen
+      oder die gemeinsame vxlanfunctions.sh bereitstellen.
+  when: not vxlan_functions_file.stat.exists
+
+- name: Validate wireguardnodesipadress is set
+  assert:
+    that:
+      - wireguardnodesipadress is defined
+      - wireguardnodesipadress | length > 0
+    fail_msg: "wireguardnodesipadress muss gesetzt sein, z. B. fd42:dead:beef:23::1"
+
+- name: Create /opt/freifunk
+  file:
+    path: /opt/freifunk
+    state: directory
+    mode: "0755"
+
+- name: Install node VXLAN setup script
+  template:
+    src: setup-vxlan-nodes.sh.j2
+    dest: "{{ vxlan_nodes_script_path }}"
+    mode: "0755"
+  notify: restart node vxlan
+
+- name: Install node VXLAN systemd service
+  template:
+    src: vxlan-nodes.service.j2
+    dest: /etc/systemd/system/vxlan-nodes.service
+    mode: "0644"
+  notify: restart node vxlan
+
+- name: Enable and start node VXLAN service
+  systemd:
+    name: vxlan-nodes
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,0 +1,45 @@
+#!/bin/bash
+
+node_vxlan_ifname="{{ node_vxlan_ifname }}"
+node_vxlan_vni="{{ node_vxlan_vni }}"
+node_vxlan_dstport="{{ node_vxlan_dstport }}"
+node_vxlan_underlay_if="{{ node_vxlan_underlay_if }}"
+node_vxlan_mac="{{ node_vxlan_mac }}"
+node_vxlan_mtu="{{ node_vxlan_mtu }}"
+
+batman_meshif="{{ node_vxlan_batman_meshif }}"
+throughput_override="{{ node_vxlan_throughput_override }}"
+
+wireguardnodesipadress="{{ wireguardnodesipadress }}"
+node_state_dir="{{ node_state_dir }}"
+
+export BATCTL_CMD="{{ batctl_cmd }}"
+
+source "{{ vxlan_functions_path }}"
+
+if [ -z "$wireguardnodesipadress" ]; then
+    echo "ERROR: wireguardnodesipadress is required" >&2
+    exit 1
+fi
+
+vxlan_create_if_missing \
+    "$node_vxlan_ifname" \
+    "$node_vxlan_vni" \
+    "$node_vxlan_dstport" \
+    "$node_vxlan_underlay_if" \
+    "$node_vxlan_mac" \
+    "$node_vxlan_mtu"
+
+vxlan_ensure_up "$node_vxlan_ifname"
+
+vxlan_ensure_added_to_bat \
+    "$node_vxlan_ifname" \
+    "$batman_meshif" \
+    "$throughput_override"
+
+vxlan_sync_fdb_from_node_state \
+    "$node_vxlan_ifname" \
+    "$wireguardnodesipadress" \
+    "$node_state_dir"
+
+echo "$node_vxlan_ifname node-peer VXLAN setup complete"

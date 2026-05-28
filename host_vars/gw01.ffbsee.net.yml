@@ -49,8 +49,8 @@ vxlanbackbonename: 'vxbackbone'
 
 # variables for wireguard-nodes interface and corresponding vxlan
 wireguardnodesipadress: 'fd42:dead:beef:23::1'
-vxlan-nodes-mac: '3e:77:9b:2e:9b:df'
-vxlan-nodes-ifname: 'vxnodes'
+vxlan_nodes_mac: '3e:77:9b:2e:9b:df'
+vxlan_nodes_ifname: 'vxnodes'
 
 # IPv6 address for nodes autoupdater
 mesh_ipv6_extra_addr: ''

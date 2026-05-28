@@ -1,0 +1,16 @@
+---
+node_vxlan_ifname: "{{vxlan_nodes_ifname}}"
+node_vxlan_vni: 26
+node_vxlan_dstport: 4226
+node_vxlan_underlay_if: "wg-nodes"
+node_vxlan_mac: "{{vxlan_nodes_mac}}"
+node_vxlan_mtu: 1240
+
+node_vxlan_batman_meshif: "bat0"
+node_vxlan_throughput_override: ""
+
+node_state_dir: "/var/lib/ff-key-acceptor"
+vxlan_functions_path: "/opt/freifunk/vxlanfunctions.sh"
+vxlan_nodes_script_path: "/opt/freifunk/setup-vxlan-nodes.sh"
+
+batctl_cmd: "/usr/local/sbin/batctl"

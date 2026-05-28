@@ -1,0 +1,7 @@
+---
+- name: restart node vxlan
+  systemd:
+    name: vxlan-nodes
+    state: restarted
+    enabled: true
+    daemon_reload: true
