@@ -7,7 +7,7 @@
 
 - name: restart key acceptor
   systemd:
-    name: ff-key-acceptor
+    name: wg-key-acceptor
     state: restarted
     enabled: true
     daemon_reload: true

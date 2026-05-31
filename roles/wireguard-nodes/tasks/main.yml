@@ -5,6 +5,7 @@
       - wireguard-tools
       - python3
       - python3-flask
+      - gunicorn
       - nginx
     state: present
     update_cache: true
@@ -48,29 +49,29 @@
 
 - name: Install key acceptor script
   template:
-    src: ff-key-acceptor.py.j2
-    dest: /usr/local/bin/ff-key-acceptor.py
+    src: wg-key-acceptor.py.j2
+    dest: /usr/local/bin/wg_key_acceptor.py
     mode: "0755"
   notify: restart key acceptor
 
 - name: Install key acceptor systemd service
   template:
-    src: ff-key-acceptor.service.j2
-    dest: /etc/systemd/system/ff-key-acceptor.service
+    src: wg-key-acceptor.service.j2
+    dest: /etc/systemd/system/wg-key-acceptor.service
     mode: "0644"
   notify: restart key acceptor
 
 - name: Install nginx site
   template:
-    src: nginx-ff-key-acceptor.conf.j2
-    dest: /etc/nginx/sites-available/ff-key-acceptor
+    src: nginx-wg-key-acceptor.conf.j2
+    dest: /etc/nginx/sites-available/wg-key-acceptor
     mode: "0644"
   notify: reload nginx
 
 - name: Enable nginx site
   file:
-    src: /etc/nginx/sites-available/ff-key-acceptor
-    dest: /etc/nginx/sites-enabled/ff-key-acceptor
+    src: /etc/nginx/sites-available/wg-key-acceptor
+    dest: /etc/nginx/sites-enabled/wg-key-acceptor
     state: link
   notify: reload nginx
 
@@ -88,7 +89,7 @@
 
 - name: Enable and start key acceptor
   systemd:
-    name: ff-key-acceptor
+    name: wg-key-acceptor
     enabled: true
     state: started
     daemon_reload: true

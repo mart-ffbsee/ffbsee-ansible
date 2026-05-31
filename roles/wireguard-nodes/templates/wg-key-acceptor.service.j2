@@ -6,7 +6,14 @@ Wants=wg-quick@{{ wg_iface }}.service
 [Service]
 Type=simple
 Environment=FF_REGISTER_TOKEN={{ registration_token }}
-ExecStart=/usr/local/bin/ff-key-acceptor.py
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/bin/gunicorn \
+  --workers 1 \
+  --bind {{ key_acceptor_bind_host }}:{{ key_acceptor_bind_port }} \
+  --access-logfile - \
+  --error-logfile - \
+  wg_key_acceptor:app
+
 Restart=always
 RestartSec=5
 User=root
