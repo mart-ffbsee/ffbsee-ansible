@@ -2,6 +2,7 @@ limit_req_zone $binary_remote_addr zone=wgregister:10m rate=5r/s;
 
 server {
     listen 443 ssl http2;
+    listen [::]:443 ssl http2;
     server_name {{ gateway_api_domain }};
 
     ssl_certificate {{ tls_cert_path }};
